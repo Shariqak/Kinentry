@@ -34,7 +34,7 @@ export default function Signup() {
   return (
     <div className="flex min-h-screen items-center justify-center bg-slate-50 px-4">
       <div className="w-full max-w-sm rounded-xl bg-white p-8 shadow-sm">
-        <h1 className="mb-6 text-2xl font-bold text-slate-900">Create your enrollease account</h1>
+        <h1 className="mb-6 text-2xl font-bold text-slate-900">Create your Kinentry account</h1>
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
           <div>
             <label className="mb-1 block text-sm font-medium text-slate-700">Full name</label>
