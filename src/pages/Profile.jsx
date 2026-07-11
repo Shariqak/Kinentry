@@ -6,6 +6,7 @@ import { supabase } from "../lib/supabase"
 import { useAuth } from "../context/AuthContext"
 import { NavBar } from "../components/NavBar"
 import { InsuranceCardScanner } from "../components/InsuranceCardScanner"
+import { EligibilityChecker } from "../components/EligibilityChecker"
 
 const schema = z.object({
   full_name: z.string().min(1, "Full name is required"),
@@ -43,12 +44,14 @@ export default function Profile() {
   const [saved, setSaved] = useState(false)
   const [serverError, setServerError] = useState(null)
   const [eligibilityStatus, setEligibilityStatus] = useState("unverified")
+  const [patientData, setPatientData] = useState(null)
 
   const {
     register,
     handleSubmit,
     reset,
     setValue,
+    getValues,
     formState: { errors, isSubmitting },
   } = useForm({ resolver: zodResolver(schema) })
 
@@ -56,13 +59,14 @@ export default function Profile() {
     async function loadProfile() {
       const { data, error } = await supabase
         .from("patients")
-        .select("full_name, date_of_birth, phone, insurance_provider, member_id, group_number, plan_type, policy_holder, preferred_language, eligibility_status")
+        .select("full_name, date_of_birth, phone, insurance_provider, member_id, group_number, plan_type, policy_holder, preferred_language, eligibility_status, eligibility_checked_at")
         .eq("id", user.id)
         .single()
 
       if (!error && data) {
         reset(data)
         setEligibilityStatus(data.eligibility_status || "unverified")
+        setPatientData({ ...data, id: user.id })
       }
       setLoading(false)
     }
@@ -87,7 +91,10 @@ export default function Profile() {
       .eq("id", user.id)
 
     if (error) setServerError(error.message)
-    else setSaved(true)
+    else {
+      setSaved(true)
+      setPatientData({ ...patientData, ...data })
+    }
   }
 
   return (
@@ -109,8 +116,7 @@ export default function Profile() {
         {loading ? (
           <p className="mt-6 text-slate-500">Loading...</p>
         ) : (
-          <form onSubmit={handleSubmit(onSubmit)} className="mt-6 space-y-8">
-
+          <form onSubmit={handleSubmit(onSubmit)} className="mt-6 space-y-6">
             <div className="rounded-xl bg-white p-6 shadow-sm">
               <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-slate-400">Personal Information</h2>
               <div className="space-y-4">
@@ -205,6 +211,18 @@ export default function Profile() {
               {isSubmitting ? "Saving..." : "Save profile"}
             </button>
           </form>
+        )}
+
+        {patientData && (
+          <div className="mt-6">
+            <EligibilityChecker
+              patient={{ ...patientData, eligibility_status: eligibilityStatus }}
+              onStatusUpdate={(status) => {
+                setEligibilityStatus(status)
+                setPatientData((prev) => ({ ...prev, eligibility_status: status }))
+              }}
+            />
+          </div>
         )}
       </div>
     </div>
