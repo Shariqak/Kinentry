@@ -16,7 +16,7 @@ export function ProtectedRoute({ children, requireOnboarding = true }) {
         .select("onboarding_complete, role")
         .eq("id", session.user.id)
         .single()
-      setOnboardingComplete(data?.onboarding_complete ?? false)
+      setOnboardingComplete(data?.onboarding_complete === true)
       setChecking(false)
     }
     checkOnboarding()

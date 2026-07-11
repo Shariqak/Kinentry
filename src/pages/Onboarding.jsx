@@ -68,7 +68,8 @@ export default function Onboarding() {
       .from("patients")
       .update(finalData)
       .eq("id", user.id)
-    if (error) setServerError(error.message)
+    console.log("onboarding save result:", { error, finalData })
+    if (error) setServerError("Save failed: " + error.message)
     else navigate("/programs")
     setSaving(false)
   }
