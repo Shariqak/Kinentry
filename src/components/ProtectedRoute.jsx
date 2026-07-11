@@ -3,6 +3,9 @@ import { useAuth } from "../context/AuthContext"
 import { useEffect, useState } from "react"
 import { supabase } from "../lib/supabase"
 
+// Cache onboarding status so it doesnt re-query after completion
+const onboardingCache = {}
+
 export function ProtectedRoute({ children, requireOnboarding = true }) {
   const { session, loading } = useAuth()
   const [onboardingComplete, setOnboardingComplete] = useState(null)
@@ -11,12 +14,25 @@ export function ProtectedRoute({ children, requireOnboarding = true }) {
   useEffect(() => {
     async function checkOnboarding() {
       if (!session) { setChecking(false); return }
+
+      const userId = session.user.id
+
+      // Use cached value if available
+      if (onboardingCache[userId] === true) {
+        setOnboardingComplete(true)
+        setChecking(false)
+        return
+      }
+
       const { data } = await supabase
         .from("patients")
         .select("onboarding_complete, role")
-        .eq("id", session.user.id)
+        .eq("id", userId)
         .single()
-      setOnboardingComplete(data?.onboarding_complete === true)
+
+      const complete = data?.onboarding_complete === true
+      onboardingCache[userId] = complete
+      setOnboardingComplete(complete)
       setChecking(false)
     }
     checkOnboarding()
