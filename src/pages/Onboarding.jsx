@@ -1,7 +1,4 @@
 import { useState } from "react"
-import { useForm } from "react-hook-form"
-import { zodResolver } from "@hookform/resolvers/zod"
-import { z } from "zod"
 import { useNavigate } from "react-router-dom"
 import { supabase } from "../lib/supabase"
 import { useAuth } from "../context/AuthContext"
@@ -17,54 +14,63 @@ const LANGUAGES = [
 
 const PLAN_TYPES = ["HMO", "PPO", "EPO", "POS", "Medicare", "Medicaid", "Other"]
 
-const step1Schema = z.object({
-  full_name: z.string().min(1, "Full name is required"),
-  date_of_birth: z.string().min(1, "Date of birth is required"),
-  phone: z.string().min(6, "Enter a valid phone number"),
-})
-
-const step2Schema = z.object({
-  insurance_provider: z.string().min(1, "Insurance provider is required"),
-  member_id: z.string().min(1, "Member ID is required"),
-  group_number: z.string().optional(),
-  plan_type: z.string().min(1, "Plan type is required"),
-  policy_holder: z.string().optional(),
-})
-
-const step3Schema = z.object({
-  preferred_language: z.string().min(1, "Please select a language"),
-})
-
 export default function Onboarding() {
   const { user } = useAuth()
   const navigate = useNavigate()
   const [step, setStep] = useState(1)
-  const [formData, setFormData] = useState({})
+  const [saving, setSaving] = useState(false)
   const [serverError, setServerError] = useState(null)
+  const [errors, setErrors] = useState({})
 
-  const schemas = [null, step1Schema, step2Schema, step3Schema]
+  const [step1, setStep1] = useState({ full_name: "", date_of_birth: "", phone: "" })
+  const [step2, setStep2] = useState({ insurance_provider: "", member_id: "", group_number: "", plan_type: "", policy_holder: "" })
+  const [step3, setStep3] = useState({ preferred_language: "" })
 
-  const form1 = useForm({ resolver: zodResolver(step1Schema) })
-  const form2 = useForm({ resolver: zodResolver(step2Schema) })
-  const form3 = useForm({ resolver: zodResolver(step3Schema) })
-  const forms = [null, form1, form2, form3]
-  const { register, handleSubmit, formState: { errors, isSubmitting } } = forms[step]
-
-  const onNext = (data) => {
-    setFormData((prev) => ({ ...prev, ...data }))
-    setStep((prev) => prev + 1)
+  const validateStep1 = () => {
+    const e = {}
+    if (!step1.full_name) e.full_name = "Full name is required"
+    if (!step1.date_of_birth) e.date_of_birth = "Date of birth is required"
+    if (!step1.phone || step1.phone.length < 6) e.phone = "Enter a valid phone number"
+    setErrors(e)
+    return Object.keys(e).length === 0
   }
 
-  const onSubmit = async (data) => {
+  const validateStep2 = () => {
+    const e = {}
+    if (!step2.insurance_provider) e.insurance_provider = "Insurance provider is required"
+    if (!step2.member_id) e.member_id = "Member ID is required"
+    if (!step2.plan_type) e.plan_type = "Plan type is required"
+    setErrors(e)
+    return Object.keys(e).length === 0
+  }
+
+  const validateStep3 = () => {
+    const e = {}
+    if (!step3.preferred_language) e.preferred_language = "Please select a language"
+    setErrors(e)
+    return Object.keys(e).length === 0
+  }
+
+  const handleNext1 = () => {
+    if (validateStep1()) { setErrors({}); setStep(2) }
+  }
+
+  const handleNext2 = () => {
+    if (validateStep2()) { setErrors({}); setStep(3) }
+  }
+
+  const handleSubmit = async () => {
+    if (!validateStep3()) return
+    setSaving(true)
     setServerError(null)
-    const finalData = { ...formData, ...data, onboarding_complete: true }
+    const finalData = { ...step1, ...step2, ...step3, onboarding_complete: true }
     const { error } = await supabase
       .from("patients")
       .update(finalData)
       .eq("id", user.id)
-
     if (error) setServerError(error.message)
     else navigate("/programs")
+    setSaving(false)
   }
 
   const steps = ["Personal Info", "Insurance", "Preferences"]
@@ -102,111 +108,123 @@ export default function Onboarding() {
 
         <div className="rounded-xl bg-white p-8 shadow-sm">
           {step === 1 && (
-            <form onSubmit={handleSubmit(onNext)} className="space-y-4">
+            <div className="space-y-4">
               <h2 className="text-lg font-semibold text-slate-900 mb-4">Personal Information</h2>
               <div>
                 <label className="mb-1 block text-sm font-medium text-slate-700">Full name</label>
-                <input type="text" {...register("full_name")}
+                <input type="text" value={step1.full_name}
+                  onChange={(e) => setStep1({ ...step1, full_name: e.target.value })}
                   className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500" />
-                {errors.full_name && <p className="mt-1 text-sm text-red-600">{errors.full_name.message}</p>}
+                {errors.full_name && <p className="mt-1 text-sm text-red-600">{errors.full_name}</p>}
               </div>
               <div>
                 <label className="mb-1 block text-sm font-medium text-slate-700">Date of birth</label>
-                <input type="date" {...register("date_of_birth")}
+                <input type="date" value={step1.date_of_birth}
+                  onChange={(e) => setStep1({ ...step1, date_of_birth: e.target.value })}
                   className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500" />
-                {errors.date_of_birth && <p className="mt-1 text-sm text-red-600">{errors.date_of_birth.message}</p>}
+                {errors.date_of_birth && <p className="mt-1 text-sm text-red-600">{errors.date_of_birth}</p>}
               </div>
               <div>
                 <label className="mb-1 block text-sm font-medium text-slate-700">Phone number</label>
-                <input type="tel" {...register("phone")}
+                <input type="tel" value={step1.phone}
+                  onChange={(e) => setStep1({ ...step1, phone: e.target.value })}
                   className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500" />
-                {errors.phone && <p className="mt-1 text-sm text-red-600">{errors.phone.message}</p>}
+                {errors.phone && <p className="mt-1 text-sm text-red-600">{errors.phone}</p>}
               </div>
-              <button type="submit"
+              <button onClick={handleNext1}
                 className="w-full rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700">
                 Next: Insurance Details
               </button>
-            </form>
+            </div>
           )}
 
           {step === 2 && (
-            <form onSubmit={handleSubmit(onNext)} className="space-y-4">
+            <div className="space-y-4">
               <h2 className="text-lg font-semibold text-slate-900 mb-4">Insurance Information</h2>
               <div>
                 <label className="mb-1 block text-sm font-medium text-slate-700">Insurance provider</label>
-                <input type="text" {...register("insurance_provider")} placeholder="e.g. Blue Cross Blue Shield"
+                <input type="text" value={step2.insurance_provider} placeholder="e.g. Blue Cross Blue Shield"
+                  onChange={(e) => setStep2({ ...step2, insurance_provider: e.target.value })}
                   className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500" />
-                {errors.insurance_provider && <p className="mt-1 text-sm text-red-600">{errors.insurance_provider.message}</p>}
+                {errors.insurance_provider && <p className="mt-1 text-sm text-red-600">{errors.insurance_provider}</p>}
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="mb-1 block text-sm font-medium text-slate-700">Member ID</label>
-                  <input type="text" {...register("member_id")}
+                  <input type="text" value={step2.member_id}
+                    onChange={(e) => setStep2({ ...step2, member_id: e.target.value })}
                     className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500" />
-                  {errors.member_id && <p className="mt-1 text-sm text-red-600">{errors.member_id.message}</p>}
+                  {errors.member_id && <p className="mt-1 text-sm text-red-600">{errors.member_id}</p>}
                 </div>
                 <div>
                   <label className="mb-1 block text-sm font-medium text-slate-700">Group number</label>
-                  <input type="text" {...register("group_number")}
+                  <input type="text" value={step2.group_number}
+                    onChange={(e) => setStep2({ ...step2, group_number: e.target.value })}
                     className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500" />
                 </div>
               </div>
               <div>
                 <label className="mb-1 block text-sm font-medium text-slate-700">Plan type</label>
-                <select {...register("plan_type")}
+                <select value={step2.plan_type}
+                  onChange={(e) => setStep2({ ...step2, plan_type: e.target.value })}
                   className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500">
                   <option value="">Select plan type</option>
                   {PLAN_TYPES.map((p) => (
                     <option key={p} value={p}>{p}</option>
                   ))}
                 </select>
-                {errors.plan_type && <p className="mt-1 text-sm text-red-600">{errors.plan_type.message}</p>}
+                {errors.plan_type && <p className="mt-1 text-sm text-red-600">{errors.plan_type}</p>}
               </div>
               <div>
                 <label className="mb-1 block text-sm font-medium text-slate-700">Policy holder name</label>
-                <input type="text" {...register("policy_holder")} placeholder="If different from patient"
+                <input type="text" value={step2.policy_holder} placeholder="If different from patient"
+                  onChange={(e) => setStep2({ ...step2, policy_holder: e.target.value })}
                   className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500" />
               </div>
               <div className="flex gap-3">
-                <button type="button" onClick={() => setStep(1)}
+                <button onClick={() => setStep(1)}
                   className="flex-1 rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50">
                   Back
                 </button>
-                <button type="submit"
+                <button onClick={handleNext2}
                   className="flex-1 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700">
                   Next: Preferences
                 </button>
               </div>
-            </form>
+            </div>
           )}
 
           {step === 3 && (
-            <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+            <div className="space-y-4">
               <h2 className="text-lg font-semibold text-slate-900 mb-4">Language Preference</h2>
               <p className="text-sm text-slate-500">Select your preferred language for forms and communications.</p>
               <div className="grid grid-cols-2 gap-3">
                 {LANGUAGES.map((lang) => (
                   <label key={lang.code}
-                    className="flex items-center gap-3 rounded-lg border border-slate-200 p-3 cursor-pointer hover:border-blue-300">
-                    <input type="radio" {...register("preferred_language")} value={lang.code}
+                    className={`flex items-center gap-3 rounded-lg border p-3 cursor-pointer ${
+                      step3.preferred_language === lang.code ? "border-blue-500 bg-blue-50" : "border-slate-200 hover:border-blue-300"
+                    }`}>
+                    <input type="radio" name="preferred_language" value={lang.code}
+                      checked={step3.preferred_language === lang.code}
+                      onChange={(e) => setStep3({ preferred_language: e.target.value })}
                       className="text-blue-600" />
                     <span className="text-sm font-medium text-slate-700">{lang.label}</span>
                   </label>
                 ))}
               </div>
-              {errors.preferred_language && <p className="mt-1 text-sm text-red-600">{errors.preferred_language.message}</p>}
+              {errors.preferred_language && <p className="mt-1 text-sm text-red-600">{errors.preferred_language}</p>}
               {serverError && <p className="text-sm text-red-600">{serverError}</p>}
               <div className="flex gap-3">
-                <button type="button" onClick={() => setStep(2)}
+                <button onClick={() => setStep(2)}
                   className="flex-1 rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50">
                   Back
                 </button>
-                <button type="submit" disabled={isSubmitting}
+                <button onClick={handleSubmit} disabled={saving}
                   className="flex-1 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50">
-                  {isSubmitting ? "Saving..." : "Complete Setup"}
+                  {saving ? "Saving..." : "Complete Setup"}
                 </button>
               </div>
-            </form>
+            </div>
           )}
         </div>
       </div>
