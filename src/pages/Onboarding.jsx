@@ -44,9 +44,11 @@ export default function Onboarding() {
 
   const schemas = [null, step1Schema, step2Schema, step3Schema]
 
-  const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm({
-    resolver: zodResolver(schemas[step]),
-  })
+  const form1 = useForm({ resolver: zodResolver(step1Schema) })
+  const form2 = useForm({ resolver: zodResolver(step2Schema) })
+  const form3 = useForm({ resolver: zodResolver(step3Schema) })
+  const forms = [null, form1, form2, form3]
+  const { register, handleSubmit, formState: { errors, isSubmitting } } = forms[step]
 
   const onNext = (data) => {
     setFormData((prev) => ({ ...prev, ...data }))
