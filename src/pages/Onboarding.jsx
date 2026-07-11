@@ -69,9 +69,12 @@ export default function Onboarding() {
       .update(finalData)
       .eq("id", user.id)
     console.log("onboarding save result:", { error, finalData })
-    if (error) setServerError("Save failed: " + error.message)
-    else navigate("/programs")
-    setSaving(false)
+    if (error) {
+      setServerError("Save failed: " + error.message)
+      setSaving(false)
+    } else {
+      window.location.href = "/programs"
+    }
   }
 
   const steps = ["Personal Info", "Insurance", "Preferences"]
