@@ -8,6 +8,8 @@ import { NavBar } from "../components/NavBar"
 import { InsuranceCardScanner } from "../components/InsuranceCardScanner"
 import { EligibilityChecker } from "../components/EligibilityChecker"
 import { ConsentGate } from "../components/ConsentGate"
+import { DriverLicenseScanner } from "../components/DriverLicenseScanner"
+import { crossVerifyIdentity } from "../lib/crossVerify"
 import { logAudit } from "../lib/auditLog"
 
 const schema = z.object({
@@ -40,6 +42,13 @@ const ELIGIBILITY_STYLES = {
   ineligible: "bg-red-100 text-red-700",
 }
 
+const IDENTITY_STYLES = {
+  unverified:    { badge: "bg-slate-100 text-slate-500",   label: "Not verified" },
+  verified:      { badge: "bg-green-100 text-green-700",   label: "Identity verified" },
+  partial_match: { badge: "bg-amber-100 text-amber-700",   label: "Partial match — review needed" },
+  mismatch:      { badge: "bg-red-100 text-red-700",       label: "Mismatch detected" },
+}
+
 export default function Profile() {
   const { user } = useAuth()
   const [loading, setLoading] = useState(true)
@@ -51,6 +60,8 @@ export default function Profile() {
   const [deletionReason, setDeletionReason] = useState("")
   const [deletionSubmitting, setDeletionSubmitting] = useState(false)
   const [deletionError, setDeletionError] = useState(null)
+  const [identityVerification, setIdentityVerification] = useState(null)
+  const [idScanError, setIdScanError] = useState(null)
 
   const {
     register,
@@ -65,13 +76,18 @@ export default function Profile() {
     async function loadProfile() {
       const { data, error } = await supabase
         .from("patients")
-        .select("full_name, date_of_birth, phone, insurance_provider, member_id, group_number, plan_type, policy_holder, preferred_language, eligibility_status, eligibility_checked_at")
+        .select("full_name, date_of_birth, phone, insurance_provider, member_id, group_number, plan_type, policy_holder, preferred_language, eligibility_status, eligibility_checked_at, identity_verification_status, identity_verified_at, identity_verification_details")
         .eq("id", user.id)
         .single()
 
       if (!error && data) {
         reset(data)
         setEligibilityStatus(data.eligibility_status || "unverified")
+        setIdentityVerification({
+          status: data.identity_verification_status || "unverified",
+          verified_at: data.identity_verified_at,
+          checks: data.identity_verification_details || [],
+        })
         setPatientData({ ...data, id: user.id })
         logAudit({
           action: "view",
@@ -134,6 +150,49 @@ export default function Profile() {
     setValue("plan_type", scannedData.plan_type)
     setValue("policy_holder", scannedData.policy_holder)
     setSaved(false)
+  }
+
+  const handleIdScanComplete = async (idData) => {
+    setIdScanError(null)
+
+    const currentValues = getValues()
+    const result = crossVerifyIdentity({
+      idData,
+      patientRecord: {
+        full_name: currentValues.full_name || patientData?.full_name,
+        date_of_birth: currentValues.date_of_birth || patientData?.date_of_birth,
+      },
+      insuranceRecord: currentValues.policy_holder
+        ? { policy_holder: currentValues.policy_holder }
+        : null,
+    })
+
+    const { error } = await supabase
+      .from("patients")
+      .update({
+        identity_verification_status: result.status,
+        identity_verified_at: new Date().toISOString(),
+        identity_verification_details: result.checks,
+      })
+      .eq("id", user.id)
+
+    if (error) {
+      setIdScanError("Scan completed but we couldn't save the verification result. Please try again.")
+      return
+    }
+
+    setIdentityVerification({
+      status: result.status,
+      verified_at: new Date().toISOString(),
+      checks: result.checks,
+    })
+
+    logAudit({
+      action: "create",
+      resourceType: "identity_verification",
+      patientId: user.id,
+      description: `ID scan cross-verified against profile — result: ${result.status} (${result.score}%)`,
+    })
   }
 
   const onSubmit = async (data) => {
@@ -289,6 +348,44 @@ export default function Profile() {
             />
           </div>
         )}
+
+        <div className="mt-6 rounded-xl bg-white p-6 shadow-sm">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-400">Identity Verification</h2>
+              <p className="text-sm text-slate-500 mt-1">
+                Scan your driver's license or government ID to verify it matches your profile and insurance details.
+              </p>
+            </div>
+            {identityVerification && (
+              <span className={`rounded-full px-3 py-1 text-xs font-medium ${IDENTITY_STYLES[identityVerification.status].badge}`}>
+                {IDENTITY_STYLES[identityVerification.status].label}
+              </span>
+            )}
+          </div>
+
+          <ConsentGate consentType="id_scan">
+            <DriverLicenseScanner onScanComplete={handleIdScanComplete} />
+          </ConsentGate>
+
+          {idScanError && (
+            <p className="mt-3 text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">{idScanError}</p>
+          )}
+
+          {identityVerification?.checks?.length > 0 && (
+            <div className="mt-4 space-y-2 rounded-lg bg-slate-50 p-4">
+              {identityVerification.checks.map((check) => (
+                <div key={check.field} className="flex items-center justify-between text-sm">
+                  <span className="text-slate-500 capitalize">{check.field.replace(/_/g, " ")}</span>
+                  <span className={check.match ? "text-green-700 font-medium" : "text-red-600 font-medium"}>
+                    {check.match ? "Match" : "Does not match"}
+                    {check.informational && " (dependent — informational only)"}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
 
         <div className="mt-6 rounded-xl border border-red-200 bg-white p-6 shadow-sm">
           <h2 className="text-sm font-semibold uppercase tracking-wide text-red-400">Data & Privacy</h2>
