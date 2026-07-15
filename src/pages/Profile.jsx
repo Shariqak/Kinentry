@@ -7,6 +7,8 @@ import { useAuth } from "../context/AuthContext"
 import { NavBar } from "../components/NavBar"
 import { InsuranceCardScanner } from "../components/InsuranceCardScanner"
 import { EligibilityChecker } from "../components/EligibilityChecker"
+import { ConsentGate } from "../components/ConsentGate"
+import { logAudit } from "../lib/auditLog"
 
 const schema = z.object({
   full_name: z.string().min(1, "Full name is required"),
@@ -45,6 +47,10 @@ export default function Profile() {
   const [serverError, setServerError] = useState(null)
   const [eligibilityStatus, setEligibilityStatus] = useState("unverified")
   const [patientData, setPatientData] = useState(null)
+  const [deletionRequest, setDeletionRequest] = useState(null)
+  const [deletionReason, setDeletionReason] = useState("")
+  const [deletionSubmitting, setDeletionSubmitting] = useState(false)
+  const [deletionError, setDeletionError] = useState(null)
 
   const {
     register,
@@ -67,11 +73,59 @@ export default function Profile() {
         reset(data)
         setEligibilityStatus(data.eligibility_status || "unverified")
         setPatientData({ ...data, id: user.id })
+        logAudit({
+          action: "view",
+          resourceType: "patients",
+          resourceId: user.id,
+          patientId: user.id,
+          description: "Patient viewed their own profile",
+        })
       }
       setLoading(false)
     }
     loadProfile()
+
+    async function loadDeletionRequest() {
+      const { data } = await supabase
+        .from("deletion_requests")
+        .select("id, status, requested_at, review_notes")
+        .eq("patient_id", user.id)
+        .order("requested_at", { ascending: false })
+        .limit(1)
+        .maybeSingle()
+
+      setDeletionRequest(data || null)
+    }
+    loadDeletionRequest()
   }, [user.id, reset])
+
+  const submitDeletionRequest = async () => {
+    setDeletionSubmitting(true)
+    setDeletionError(null)
+
+    const { data, error } = await supabase
+      .from("deletion_requests")
+      .insert({ patient_id: user.id, reason: deletionReason || null })
+      .select("id, status, requested_at, review_notes")
+      .single()
+
+    setDeletionSubmitting(false)
+
+    if (error) {
+      setDeletionError("Couldn't submit your request. Please try again.")
+      return
+    }
+
+    setDeletionRequest(data)
+    setDeletionReason("")
+    logAudit({
+      action: "create",
+      resourceType: "deletion_requests",
+      resourceId: data.id,
+      patientId: user.id,
+      description: "Patient requested deletion of their data",
+    })
+  }
 
   const handleScanComplete = (scannedData) => {
     setValue("insurance_provider", scannedData.insurance_provider)
@@ -94,6 +148,13 @@ export default function Profile() {
     else {
       setSaved(true)
       setPatientData({ ...patientData, ...data })
+      logAudit({
+        action: "update",
+        resourceType: "patients",
+        resourceId: user.id,
+        patientId: user.id,
+        description: "Patient updated their own profile",
+      })
     }
   }
 
@@ -159,7 +220,11 @@ export default function Profile() {
             <div className="rounded-xl bg-white p-6 shadow-sm">
               <div className="flex items-center justify-between mb-4">
                 <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-400">Insurance Information</h2>
-                <InsuranceCardScanner onScanComplete={handleScanComplete} />
+              </div>
+              <div className="mb-4">
+                <ConsentGate consentType="insurance_scan">
+                  <InsuranceCardScanner onScanComplete={handleScanComplete} />
+                </ConsentGate>
               </div>
               <div className="space-y-4">
                 <div>
@@ -224,6 +289,52 @@ export default function Profile() {
             />
           </div>
         )}
+
+        <div className="mt-6 rounded-xl border border-red-200 bg-white p-6 shadow-sm">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-red-400">Data & Privacy</h2>
+          <p className="mt-1 text-sm text-slate-500">
+            You can request that your data be permanently deleted. A staff member reviews every
+            request before anything is removed.
+          </p>
+
+          {deletionRequest && deletionRequest.status !== "denied" ? (
+            <div className="mt-4 rounded-lg bg-slate-50 px-4 py-3 text-sm">
+              <p className="font-medium text-slate-700 capitalize">
+                Request status: {deletionRequest.status.replace("_", " ")}
+              </p>
+              <p className="mt-1 text-xs text-slate-400">
+                Submitted {new Date(deletionRequest.requested_at).toLocaleDateString()}
+              </p>
+              {deletionRequest.review_notes && (
+                <p className="mt-2 text-slate-600">{deletionRequest.review_notes}</p>
+              )}
+            </div>
+          ) : (
+            <div className="mt-4 space-y-3">
+              {deletionRequest?.status === "denied" && deletionRequest.review_notes && (
+                <p className="rounded-lg bg-amber-50 px-4 py-2 text-sm text-amber-800">
+                  Your previous request was denied: {deletionRequest.review_notes}
+                </p>
+              )}
+              <textarea
+                value={deletionReason}
+                onChange={(e) => setDeletionReason(e.target.value)}
+                placeholder="Optional — tell us why you're requesting deletion"
+                rows={2}
+                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-red-500 focus:outline-none focus:ring-1 focus:ring-red-500"
+              />
+              {deletionError && <p className="text-sm text-red-600">{deletionError}</p>}
+              <button
+                type="button"
+                onClick={submitDeletionRequest}
+                disabled={deletionSubmitting}
+                className="rounded-lg border border-red-300 bg-red-50 px-4 py-2 text-sm font-medium text-red-700 hover:bg-red-100 disabled:opacity-50"
+              >
+                {deletionSubmitting ? "Submitting..." : "Request account deletion"}
+              </button>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   )
