@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
-import { NavBar } from '../components/NavBar'
+import { AdminNavBar } from '../components/AdminNavBar'
 import { Navigate } from 'react-router-dom'
 import { logAudit } from '../lib/auditLog'
 
@@ -19,6 +19,17 @@ const STATUS_STYLES = {
   cancelled:  'bg-slate-100 text-slate-500',
 }
 
+const PROGRAM_STATUS_STYLES = {
+  draft:  'bg-slate-100 text-slate-500',
+  open:   'bg-green-100 text-green-700',
+  closed: 'bg-red-100 text-red-700',
+}
+
+const EMPTY_PROGRAM_FORM = {
+  name: '', code: '', description: '', category: '', capacity: '',
+  location: '', start_date: '', end_date: '', status: 'draft',
+}
+
 export default function Admin() {
   const { user } = useAuth()
   const [role, setRole] = useState(null)
@@ -32,6 +43,12 @@ export default function Admin() {
   const [deletionRequests, setDeletionRequests] = useState([])
   const [deletionBusyId, setDeletionBusyId] = useState(null)
   const [deletionNotes, setDeletionNotes] = useState({})
+  const [showProgramForm, setShowProgramForm] = useState(false)
+  const [editingProgramId, setEditingProgramId] = useState(null)
+  const [programForm, setProgramForm] = useState(EMPTY_PROGRAM_FORM)
+  const [programSaving, setProgramSaving] = useState(false)
+  const [programError, setProgramError] = useState(null)
+  const [programBusyId, setProgramBusyId] = useState(null)
 
   useEffect(() => {
     async function loadData() {
@@ -121,6 +138,156 @@ export default function Admin() {
     setDeletionBusyId(null)
   }
 
+  const openCreateProgram = () => {
+    setEditingProgramId(null)
+    setProgramForm(EMPTY_PROGRAM_FORM)
+    setProgramError(null)
+    setShowProgramForm(true)
+  }
+
+  const openEditProgram = (program) => {
+    setEditingProgramId(program.id)
+    setProgramForm({
+      name: program.name || '',
+      code: program.code || '',
+      description: program.description || '',
+      category: program.category || '',
+      capacity: program.capacity ?? '',
+      location: program.location || '',
+      start_date: program.start_date || '',
+      end_date: program.end_date || '',
+      status: program.status || 'draft',
+    })
+    setProgramError(null)
+    setShowProgramForm(true)
+  }
+
+  const closeProgramForm = () => {
+    setShowProgramForm(false)
+    setEditingProgramId(null)
+    setProgramForm(EMPTY_PROGRAM_FORM)
+    setProgramError(null)
+  }
+
+  const saveProgram = async () => {
+    if (!programForm.name.trim()) {
+      setProgramError('Program name is required.')
+      return
+    }
+
+    setProgramSaving(true)
+    setProgramError(null)
+
+    const payload = {
+      name: programForm.name.trim(),
+      code: programForm.code.trim() || null,
+      description: programForm.description.trim() || null,
+      category: programForm.category.trim() || null,
+      capacity: programForm.capacity === '' ? null : Number(programForm.capacity),
+      location: programForm.location.trim() || null,
+      start_date: programForm.start_date || null,
+      end_date: programForm.end_date || null,
+      status: programForm.status,
+    }
+
+    if (editingProgramId) {
+      const { data, error } = await supabase
+        .from('programs')
+        .update(payload)
+        .eq('id', editingProgramId)
+        .select()
+        .single()
+
+      setProgramSaving(false)
+
+      if (error) {
+        setProgramError(error.message)
+        return
+      }
+
+      setPrograms((prev) => prev.map((p) => (p.id === editingProgramId ? data : p)))
+      logAudit({
+        action: 'update',
+        resourceType: 'programs',
+        resourceId: editingProgramId,
+        description: `Staff updated program "${data.name}"`,
+      })
+    } else {
+      const { data, error } = await supabase
+        .from('programs')
+        .insert(payload)
+        .select()
+        .single()
+
+      setProgramSaving(false)
+
+      if (error) {
+        setProgramError(error.message)
+        return
+      }
+
+      setPrograms((prev) => [...prev, data].sort((a, b) => a.name.localeCompare(b.name)))
+      logAudit({
+        action: 'create',
+        resourceType: 'programs',
+        resourceId: data.id,
+        description: `Staff created program "${data.name}"`,
+      })
+    }
+
+    closeProgramForm()
+  }
+
+  const toggleProgramStatus = async (program, newStatus) => {
+    setProgramBusyId(program.id)
+    setError(null)
+
+    const { error } = await supabase
+      .from('programs')
+      .update({ status: newStatus })
+      .eq('id', program.id)
+
+    if (error) {
+      setError(error.message)
+    } else {
+      setPrograms((prev) => prev.map((p) => (p.id === program.id ? { ...p, status: newStatus } : p)))
+      logAudit({
+        action: 'update',
+        resourceType: 'programs',
+        resourceId: program.id,
+        description: `Staff set program "${program.name}" to ${newStatus}`,
+      })
+    }
+    setProgramBusyId(null)
+  }
+
+  const deleteProgram = async (program) => {
+    const enrolledCount = enrollments.filter((e) => e.program_id === program.id).length
+    const confirmMsg = enrolledCount > 0
+      ? `"${program.name}" has ${enrolledCount} enrollment(s) on record. Deleting it may fail or orphan those records — consider setting it to "closed" instead. Delete anyway?`
+      : `Delete "${program.name}"? This cannot be undone.`
+
+    if (!window.confirm(confirmMsg)) return
+
+    setProgramBusyId(program.id)
+    setError(null)
+
+    const { error } = await supabase.from('programs').delete().eq('id', program.id)
+
+    if (error) {
+      setError(`Couldn't delete "${program.name}": ${error.message}`)
+    } else {
+      setPrograms((prev) => prev.filter((p) => p.id !== program.id))
+      logAudit({
+        action: 'delete',
+        resourceType: 'programs',
+        resourceId: program.id,
+        description: `Staff deleted program "${program.name}"`,
+      })
+    }
+    setProgramBusyId(null)
+  }
+
   const filtered = enrollments.filter((e) => {
     const matchProgram = filterProgram === 'all' || e.program_id === filterProgram
     const matchStatus = filterStatus === 'all' || e.status === filterStatus
@@ -135,12 +302,12 @@ export default function Admin() {
   }
 
   if (!loading && role !== 'admin' && role !== 'staff') {
-    return <Navigate to="/dashboard" replace />
+    return <Navigate to="/patient/dashboard" replace />
   }
 
   return (
     <div className="min-h-screen bg-slate-50">
-      <NavBar />
+      <AdminNavBar />
       <div className="mx-auto max-w-6xl p-8">
         <div className="mb-6">
           <h1 className="text-2xl font-bold text-slate-900">Admin Panel</h1>
@@ -165,6 +332,207 @@ export default function Admin() {
               <p className="mt-1 text-sm text-slate-500">{s.label}</p>
             </div>
           ))}
+        </div>
+
+        <div className="mb-4 mt-10 flex items-center justify-between">
+          <div>
+            <h2 className="text-xl font-bold text-slate-900">Programs</h2>
+            <p className="mt-1 text-sm text-slate-500">Create and manage clinical programs patients can enroll in.</p>
+          </div>
+          <button
+            onClick={openCreateProgram}
+            className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
+          >
+            + Add Program
+          </button>
+        </div>
+
+        {programs.length === 0 ? (
+          <p className="text-slate-500">No programs yet — click "Add Program" to create one.</p>
+        ) : (
+          <div className="overflow-hidden rounded-xl bg-white shadow-sm">
+            <table className="w-full text-sm">
+              <thead className="border-b border-slate-100 bg-slate-50">
+                <tr>
+                  <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-400">Program</th>
+                  <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-400">Category</th>
+                  <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-400">Capacity</th>
+                  <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-400">Dates</th>
+                  <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-400">Status</th>
+                  <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-400">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {programs.map((p) => {
+                  const enrolledCount = enrollments.filter(
+                    (e) => e.program_id === p.id && e.status !== 'cancelled'
+                  ).length
+                  return (
+                    <tr key={p.id} className="hover:bg-slate-50">
+                      <td className="px-5 py-4">
+                        <p className="font-medium text-slate-900">{p.name}</p>
+                        <p className="text-xs text-slate-400">{p.code}</p>
+                      </td>
+                      <td className="px-5 py-4 text-slate-600">{p.category || '—'}</td>
+                      <td className="px-5 py-4 text-slate-600">
+                        {enrolledCount}{p.capacity != null ? ` / ${p.capacity}` : ''}
+                      </td>
+                      <td className="px-5 py-4 text-slate-500 text-xs">
+                        {p.start_date ? new Date(p.start_date).toLocaleDateString() : '—'}
+                        {p.end_date ? ` – ${new Date(p.end_date).toLocaleDateString()}` : ''}
+                      </td>
+                      <td className="px-5 py-4">
+                        <span className={`rounded-full px-3 py-1 text-xs font-medium capitalize ${PROGRAM_STATUS_STYLES[p.status] || 'bg-slate-100 text-slate-500'}`}>
+                          {p.status}
+                        </span>
+                      </td>
+                      <td className="px-5 py-4">
+                        <div className="flex gap-2 flex-wrap">
+                          <button
+                            onClick={() => openEditProgram(p)}
+                            className="rounded-lg border border-slate-300 px-3 py-1 text-xs font-medium text-slate-600 hover:bg-slate-100"
+                          >
+                            Edit
+                          </button>
+                          {p.status !== 'open' && (
+                            <button
+                              onClick={() => toggleProgramStatus(p, 'open')}
+                              disabled={programBusyId === p.id}
+                              className="rounded-lg bg-green-600 px-3 py-1 text-xs font-medium text-white hover:bg-green-700 disabled:opacity-50"
+                            >
+                              Open
+                            </button>
+                          )}
+                          {p.status !== 'closed' && (
+                            <button
+                              onClick={() => toggleProgramStatus(p, 'closed')}
+                              disabled={programBusyId === p.id}
+                              className="rounded-lg bg-slate-500 px-3 py-1 text-xs font-medium text-white hover:bg-slate-600 disabled:opacity-50"
+                            >
+                              Close
+                            </button>
+                          )}
+                          <button
+                            onClick={() => deleteProgram(p)}
+                            disabled={programBusyId === p.id}
+                            className="rounded-lg bg-red-500 px-3 py-1 text-xs font-medium text-white hover:bg-red-600 disabled:opacity-50"
+                          >
+                            Delete
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {showProgramForm && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 p-4">
+            <div className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-xl max-h-[90vh] overflow-y-auto">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-lg font-bold text-slate-900">
+                  {editingProgramId ? 'Edit Program' : 'Add Program'}
+                </h2>
+                <button onClick={closeProgramForm} className="text-slate-400 hover:text-slate-600">
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+
+              <div className="space-y-3">
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-slate-700">Program name *</label>
+                  <input type="text" value={programForm.name}
+                    onChange={(e) => setProgramForm({ ...programForm, name: e.target.value })}
+                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500" />
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="mb-1 block text-sm font-medium text-slate-700">Code</label>
+                    <input type="text" value={programForm.code}
+                      onChange={(e) => setProgramForm({ ...programForm, code: e.target.value })}
+                      className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500" />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-sm font-medium text-slate-700">Category</label>
+                    <input type="text" value={programForm.category} placeholder="e.g. Cardiology"
+                      onChange={(e) => setProgramForm({ ...programForm, category: e.target.value })}
+                      className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500" />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-slate-700">Description</label>
+                  <textarea value={programForm.description} rows={2}
+                    onChange={(e) => setProgramForm({ ...programForm, description: e.target.value })}
+                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500" />
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="mb-1 block text-sm font-medium text-slate-700">Capacity</label>
+                    <input type="number" min="0" value={programForm.capacity}
+                      onChange={(e) => setProgramForm({ ...programForm, capacity: e.target.value })}
+                      className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500" />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-sm font-medium text-slate-700">Location</label>
+                    <input type="text" value={programForm.location}
+                      onChange={(e) => setProgramForm({ ...programForm, location: e.target.value })}
+                      className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500" />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="mb-1 block text-sm font-medium text-slate-700">Start date</label>
+                    <input type="date" value={programForm.start_date}
+                      onChange={(e) => setProgramForm({ ...programForm, start_date: e.target.value })}
+                      className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500" />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-sm font-medium text-slate-700">End date</label>
+                    <input type="date" value={programForm.end_date}
+                      onChange={(e) => setProgramForm({ ...programForm, end_date: e.target.value })}
+                      className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500" />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-slate-700">Status</label>
+                  <select value={programForm.status}
+                    onChange={(e) => setProgramForm({ ...programForm, status: e.target.value })}
+                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500">
+                    <option value="draft">Draft (hidden from patients)</option>
+                    <option value="open">Open (accepting enrollments)</option>
+                    <option value="closed">Closed</option>
+                  </select>
+                </div>
+
+                {programError && <p className="text-sm text-red-600">{programError}</p>}
+
+                <div className="flex gap-3 pt-2">
+                  <button onClick={closeProgramForm}
+                    className="flex-1 rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50">
+                    Cancel
+                  </button>
+                  <button onClick={saveProgram} disabled={programSaving}
+                    className="flex-1 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50">
+                    {programSaving ? 'Saving...' : editingProgramId ? 'Save Changes' : 'Create Program'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        <div className="mb-4 mt-10">
+          <h2 className="text-xl font-bold text-slate-900">Enrollments</h2>
         </div>
 
         <div className="mb-4 flex flex-wrap gap-3">

@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
-import { NavBar } from '../components/NavBar'
+import { PatientNavBar } from '../components/PatientNavBar'
 
 const STATUS_STYLES = {
   pending:    'bg-amber-100 text-amber-800',
@@ -89,14 +89,16 @@ export default function Programs() {
     setBusyId(null)
   }
 
-  const filtered = programs.filter((p) =>
-    p.name.toLowerCase().includes(search.toLowerCase()) ||
-    p.category.toLowerCase().includes(search.toLowerCase())
-  )
+  const filtered = programs
+    .filter((p) => p.status !== 'draft')
+    .filter((p) =>
+      p.name.toLowerCase().includes(search.toLowerCase()) ||
+      p.category.toLowerCase().includes(search.toLowerCase())
+    )
 
   return (
     <div className="min-h-screen bg-slate-50">
-      <NavBar />
+      <PatientNavBar />
       <div className="mx-auto max-w-5xl p-8">
         <div className="flex items-center justify-between">
           <div>

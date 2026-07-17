@@ -2,12 +2,14 @@ import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom"
 import { AuthProvider } from "./context/AuthContext"
 import { ProtectedRoute } from "./components/ProtectedRoute"
 import Login from "./pages/Login"
+import StaffLogin from "./pages/StaffLogin"
 import Signup from "./pages/Signup"
 import Dashboard from "./pages/Dashboard"
 import Programs from "./pages/Programs"
 import Profile from "./pages/Profile"
 import MyEnrollments from "./pages/MyEnrollments"
 import Admin from "./pages/Admin"
+import AdminPatients from "./pages/AdminPatients"
 import ForgotPassword from "./pages/ForgotPassword"
 import ResetPassword from "./pages/ResetPassword"
 import Onboarding from "./pages/Onboarding"
@@ -17,17 +19,46 @@ function App() {
     <AuthProvider>
       <BrowserRouter>
         <Routes>
+          {/* Public */}
           <Route path="/login" element={<Login />} />
+          <Route path="/staff-login" element={<StaffLogin />} />
           <Route path="/signup" element={<Signup />} />
           <Route path="/forgot-password" element={<ForgotPassword />} />
           <Route path="/reset-password" element={<ResetPassword />} />
           <Route path="/onboarding" element={<ProtectedRoute requireOnboarding={false}><Onboarding /></ProtectedRoute>} />
-          <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
-          <Route path="/programs" element={<ProtectedRoute><Programs /></ProtectedRoute>} />
-          <Route path="/my-enrollments" element={<ProtectedRoute><MyEnrollments /></ProtectedRoute>} />
-          <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
-          <Route path="/admin" element={<ProtectedRoute><Admin /></ProtectedRoute>} />
-          <Route path="*" element={<Navigate to="/dashboard" replace />} />
+
+          {/* Patient portal */}
+          <Route path="/patient/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+          <Route path="/patient/programs" element={<ProtectedRoute><Programs /></ProtectedRoute>} />
+          <Route path="/patient/my-enrollments" element={<ProtectedRoute><MyEnrollments /></ProtectedRoute>} />
+          <Route path="/patient/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
+
+          {/* Admin / clinic ops — role-gated at the route level, not just hidden in the UI */}
+          <Route
+            path="/admin/dashboard"
+            element={
+              <ProtectedRoute requireRole={["staff", "admin"]}>
+                <Admin />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/admin/patients"
+            element={
+              <ProtectedRoute requireRole={["staff", "admin"]}>
+                <AdminPatients />
+              </ProtectedRoute>
+            }
+          />
+
+          {/* Backward-compatible redirects from the old flat URLs (bookmarks, etc.) */}
+          <Route path="/dashboard" element={<Navigate to="/patient/dashboard" replace />} />
+          <Route path="/programs" element={<Navigate to="/patient/programs" replace />} />
+          <Route path="/my-enrollments" element={<Navigate to="/patient/my-enrollments" replace />} />
+          <Route path="/profile" element={<Navigate to="/patient/profile" replace />} />
+          <Route path="/admin" element={<Navigate to="/admin/dashboard" replace />} />
+
+          <Route path="*" element={<Navigate to="/patient/dashboard" replace />} />
         </Routes>
       </BrowserRouter>
     </AuthProvider>

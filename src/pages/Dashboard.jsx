@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { NavBar } from '../components/NavBar'
+import { PatientNavBar } from '../components/PatientNavBar'
 import { useAuth } from '../context/AuthContext'
 import { supabase } from '../lib/supabase'
 import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend } from 'recharts'
@@ -61,7 +61,7 @@ export default function Dashboard() {
 
   return (
     <div className="min-h-screen bg-slate-50">
-      <NavBar />
+      <PatientNavBar />
       <div className="mx-auto max-w-5xl p-8">
         <div className="mb-6">
           <h1 className="text-2xl font-bold text-slate-900">
@@ -133,7 +133,7 @@ export default function Dashboard() {
               {active.length === 0 ? (
                 <p className="text-sm text-slate-400">
                   No active enrollments.{' '}
-                  <a href="/programs" className="text-blue-600 hover:underline">Browse programs</a>
+                  <a href="/patient/programs" className="text-blue-600 hover:underline">Browse programs</a>
                 </p>
               ) : (
                 <div className="divide-y divide-slate-100">

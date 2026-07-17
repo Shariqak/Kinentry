@@ -4,7 +4,7 @@ import { zodResolver } from "@hookform/resolvers/zod"
 import { z } from "zod"
 import { supabase } from "../lib/supabase"
 import { useAuth } from "../context/AuthContext"
-import { NavBar } from "../components/NavBar"
+import { PatientNavBar } from "../components/PatientNavBar"
 import { InsuranceCardScanner } from "../components/InsuranceCardScanner"
 import { EligibilityChecker } from "../components/EligibilityChecker"
 import { ConsentGate } from "../components/ConsentGate"
@@ -219,7 +219,7 @@ export default function Profile() {
 
   return (
     <div className="min-h-screen bg-slate-50">
-      <NavBar />
+      <PatientNavBar />
       <div className="mx-auto max-w-2xl p-8">
         <div className="flex items-center justify-between">
           <div>

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
-import { NavBar } from '../components/NavBar'
+import { PatientNavBar } from '../components/PatientNavBar'
 
 const STATUS_STYLES = {
   pending:    'bg-amber-100 text-amber-800',
@@ -58,7 +58,7 @@ export default function MyEnrollments() {
 
   return (
     <div className="min-h-screen bg-slate-50">
-      <NavBar />
+      <PatientNavBar />
       <div className="mx-auto max-w-5xl p-8">
         <h1 className="text-2xl font-bold text-slate-900">My Enrollments</h1>
         <p className="mt-1 text-sm text-slate-500">
@@ -74,7 +74,7 @@ export default function MyEnrollments() {
         ) : enrollments.length === 0 ? (
           <div className="mt-8 rounded-xl bg-white p-8 text-center shadow-sm">
             <p className="text-slate-500">You have not enrolled in any programs yet.</p>
-            <a href="/programs" className="mt-3 inline-block text-sm font-medium text-blue-600 hover:underline">
+            <a href="/patient/programs" className="mt-3 inline-block text-sm font-medium text-blue-600 hover:underline">
               Browse programs
             </a>
           </div>
