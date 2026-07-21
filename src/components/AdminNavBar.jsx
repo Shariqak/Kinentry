@@ -7,7 +7,7 @@ const linkClass = ({ isActive }) =>
 // Sections still planned next (RCM reframe) — shown as disabled placeholders
 // so the target navigation structure stays visible, without dead-ending
 // into pages that don't exist yet.
-const COMING_SOON = ["Intake Queue", "Referrals", "Reports"]
+const COMING_SOON = ["Referrals", "Reports"]
 
 export function AdminNavBar() {
   const { user, signOut } = useAuth()
@@ -25,6 +25,7 @@ export function AdminNavBar() {
           <span className="text-lg font-bold text-red-700">Kinentry — Admin</span>
           <nav className="flex gap-4 items-center">
             <NavLink to="/admin/dashboard" className={linkClass}>Dashboard</NavLink>
+            <NavLink to="/admin/intake-queue" className={linkClass}>Intake Queue</NavLink>
             <NavLink to="/admin/patients" className={linkClass}>Patients</NavLink>
             {COMING_SOON.map((label) => (
               <span

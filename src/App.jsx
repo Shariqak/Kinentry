@@ -10,6 +10,7 @@ import Profile from "./pages/Profile"
 import MyEnrollments from "./pages/MyEnrollments"
 import Admin from "./pages/Admin"
 import AdminPatients from "./pages/AdminPatients"
+import AdminIntakeQueue from "./pages/AdminIntakeQueue"
 import ForgotPassword from "./pages/ForgotPassword"
 import ResetPassword from "./pages/ResetPassword"
 import Onboarding from "./pages/Onboarding"
@@ -47,6 +48,14 @@ function App() {
             element={
               <ProtectedRoute requireRole={["staff", "admin"]}>
                 <AdminPatients />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/admin/intake-queue"
+            element={
+              <ProtectedRoute requireRole={["staff", "admin"]}>
+                <AdminIntakeQueue />
               </ProtectedRoute>
             }
           />

@@ -74,9 +74,22 @@ export default function Onboarding() {
     if (error) {
       setServerError("Save failed: " + error.message)
       setSaving(false)
-    } else {
-      window.location.href = "/programs"
+      return
     }
+
+    // Opens the patient's first insurance verification case — this is what
+    // makes it show up in staff's intake queue as "pending".
+    await supabase.from("insurance_verifications").insert({
+      patient_id: user.id,
+      status: "pending",
+      payer_name: step2.insurance_provider || null,
+      member_id: step2.member_id || null,
+      group_number: step2.group_number || null,
+      plan_type: step2.plan_type || null,
+      reason: "Submitted during onboarding",
+    })
+
+    window.location.href = "/patient/programs"
   }
 
   const steps = [t("onboarding.steps.personal"), t("onboarding.steps.insurance"), t("onboarding.steps.preferences")]
