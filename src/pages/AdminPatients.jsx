@@ -36,6 +36,12 @@ export default function AdminPatients() {
   const [roleFilter, setRoleFilter] = useState('all')
   const [eligibilityFilter, setEligibilityFilter] = useState('all')
   const [selectedPatient, setSelectedPatient] = useState(null)
+  const [appointments, setAppointments] = useState([])
+  const [programs, setPrograms] = useState([])
+  const [showScheduleForm, setShowScheduleForm] = useState(false)
+  const [scheduleForm, setScheduleForm] = useState({ date: '', time: '', duration_minutes: 30, program_id: '', physician_name: '', location: '' })
+  const [scheduleSaving, setScheduleSaving] = useState(false)
+  const [scheduleError, setScheduleError] = useState(null)
 
   useEffect(() => {
     async function loadData() {
@@ -51,7 +57,7 @@ export default function AdminPatients() {
         return
       }
 
-      const [patientsRes, enrollmentsRes] = await Promise.all([
+      const [patientsRes, enrollmentsRes, appointmentsRes, programsRes] = await Promise.all([
         supabase
           .from('patients')
           .select('id, full_name, date_of_birth, phone, insurance_provider, member_id, plan_type, eligibility_status, identity_verification_status, preferred_language, role, onboarding_complete')
@@ -60,7 +66,18 @@ export default function AdminPatients() {
           .from('enrollments')
           .select('id, patient_id, status, enrolled_at, programs(name)')
           .order('enrolled_at', { ascending: false }),
+        supabase
+          .from('appointments')
+          .select('*, programs(name)')
+          .order('scheduled_at', { ascending: true }),
+        supabase
+          .from('programs')
+          .select('id, name')
+          .order('name'),
       ])
+
+      if (appointmentsRes.data) setAppointments(appointmentsRes.data)
+      if (programsRes.data) setPrograms(programsRes.data)
 
       if (patientsRes.error) setError(patientsRes.error.message)
       else setPatients(patientsRes.data)
@@ -103,6 +120,54 @@ export default function AdminPatients() {
   const patientEnrollments = selectedPatient
     ? enrollments.filter((e) => e.patient_id === selectedPatient.id)
     : []
+
+  const patientAppointments = selectedPatient
+    ? appointments.filter((a) => a.patient_id === selectedPatient.id)
+    : []
+
+  const scheduleAppointment = async () => {
+    if (!scheduleForm.date || !scheduleForm.time) {
+      setScheduleError('Date and time are required.')
+      return
+    }
+    setScheduleSaving(true)
+    setScheduleError(null)
+
+    const scheduledAt = new Date(`${scheduleForm.date}T${scheduleForm.time}`).toISOString()
+
+    const { data, error } = await supabase
+      .from('appointments')
+      .insert({
+        patient_id: selectedPatient.id,
+        program_id: scheduleForm.program_id || null,
+        scheduled_at: scheduledAt,
+        duration_minutes: Number(scheduleForm.duration_minutes) || 30,
+        physician_name: scheduleForm.physician_name.trim() || null,
+        location: scheduleForm.location.trim() || null,
+        created_by: user.id,
+      })
+      .select('*, programs(name)')
+      .single()
+
+    setScheduleSaving(false)
+
+    if (error) {
+      setScheduleError(error.message)
+      return
+    }
+
+    setAppointments((prev) => [...prev, data])
+    setShowScheduleForm(false)
+    setScheduleForm({ date: '', time: '', duration_minutes: 30, program_id: '', physician_name: '', location: '' })
+
+    logAudit({
+      action: 'create',
+      resourceType: 'appointments',
+      resourceId: data.id,
+      patientId: selectedPatient.id,
+      description: `Staff scheduled appointment for "${selectedPatient.full_name}" on ${new Date(scheduledAt).toLocaleString()}`,
+    })
+  }
 
   return (
     <div className="min-h-screen bg-slate-50">
@@ -279,6 +344,77 @@ export default function AdminPatients() {
                         }`}>
                           {e.status}
                         </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-xs uppercase tracking-wide text-slate-400">Appointments ({patientAppointments.length})</p>
+                  <button
+                    onClick={() => setShowScheduleForm((v) => !v)}
+                    className="text-xs font-medium text-blue-600 hover:underline"
+                  >
+                    {showScheduleForm ? 'Cancel' : '+ Schedule'}
+                  </button>
+                </div>
+
+                {showScheduleForm && (
+                  <div className="mb-3 space-y-2 rounded-lg border border-blue-200 bg-blue-50 p-3">
+                    <div className="grid grid-cols-2 gap-2">
+                      <input type="date" value={scheduleForm.date}
+                        onChange={(e) => setScheduleForm({ ...scheduleForm, date: e.target.value })}
+                        className="rounded-lg border border-slate-300 px-2 py-1.5 text-xs" />
+                      <input type="time" value={scheduleForm.time}
+                        onChange={(e) => setScheduleForm({ ...scheduleForm, time: e.target.value })}
+                        className="rounded-lg border border-slate-300 px-2 py-1.5 text-xs" />
+                    </div>
+                    <select value={scheduleForm.program_id}
+                      onChange={(e) => setScheduleForm({ ...scheduleForm, program_id: e.target.value })}
+                      className="w-full rounded-lg border border-slate-300 px-2 py-1.5 text-xs">
+                      <option value="">No specific program</option>
+                      {programs.map((p) => (
+                        <option key={p.id} value={p.id}>{p.name}</option>
+                      ))}
+                    </select>
+                    <input type="text" placeholder="Physician name" value={scheduleForm.physician_name}
+                      onChange={(e) => setScheduleForm({ ...scheduleForm, physician_name: e.target.value })}
+                      className="w-full rounded-lg border border-slate-300 px-2 py-1.5 text-xs" />
+                    <input type="text" placeholder="Location (e.g. Room 204)" value={scheduleForm.location}
+                      onChange={(e) => setScheduleForm({ ...scheduleForm, location: e.target.value })}
+                      className="w-full rounded-lg border border-slate-300 px-2 py-1.5 text-xs" />
+                    {scheduleError && <p className="text-xs text-red-600">{scheduleError}</p>}
+                    <button onClick={scheduleAppointment} disabled={scheduleSaving}
+                      className="w-full rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-50">
+                      {scheduleSaving ? 'Scheduling...' : 'Confirm Appointment'}
+                    </button>
+                  </div>
+                )}
+
+                {patientAppointments.length === 0 ? (
+                  <p className="text-sm text-slate-400">No appointments scheduled.</p>
+                ) : (
+                  <div className="space-y-2">
+                    {patientAppointments.map((a) => (
+                      <div key={a.id} className="rounded-lg border border-slate-200 px-3 py-2 text-sm">
+                        <div className="flex items-center justify-between">
+                          <span className="text-slate-700">{new Date(a.scheduled_at).toLocaleString()}</span>
+                          <span className={`rounded-full px-2 py-0.5 text-xs font-medium capitalize ${
+                            a.status === 'completed' ? 'bg-slate-100 text-slate-500' :
+                            a.status === 'cancelled' ? 'bg-red-100 text-red-500' :
+                            a.status === 'confirmed' ? 'bg-green-100 text-green-700' :
+                            'bg-blue-100 text-blue-700'
+                          }`}>
+                            {a.status.replace('_', ' ')}
+                          </span>
+                        </div>
+                        {(a.physician_name || a.location) && (
+                          <p className="mt-1 text-xs text-slate-400">
+                            {a.physician_name}{a.physician_name && a.location ? ' · ' : ''}{a.location}
+                          </p>
+                        )}
                       </div>
                     ))}
                   </div>

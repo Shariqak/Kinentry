@@ -26,6 +26,7 @@ export function PatientNavBar() {
           <nav className="flex gap-4">
             <NavLink to="/patient/dashboard" className={linkClass}>Dashboard</NavLink>
             <NavLink to="/patient/programs" className={linkClass}>Programs</NavLink>
+            <NavLink to="/patient/appointments" className={linkClass}>Appointments</NavLink>
             <NavLink to="/patient/my-enrollments" className={linkClass}>My Enrollments</NavLink>
             <NavLink to="/patient/profile" className={linkClass}>Profile</NavLink>
           </nav>

@@ -8,6 +8,7 @@ import Dashboard from "./pages/Dashboard"
 import Programs from "./pages/Programs"
 import Profile from "./pages/Profile"
 import MyEnrollments from "./pages/MyEnrollments"
+import PatientAppointments from "./pages/PatientAppointments"
 import Admin from "./pages/Admin"
 import AdminPatients from "./pages/AdminPatients"
 import AdminIntakeQueue from "./pages/AdminIntakeQueue"
@@ -32,6 +33,7 @@ function App() {
           <Route path="/patient/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
           <Route path="/patient/programs" element={<ProtectedRoute><Programs /></ProtectedRoute>} />
           <Route path="/patient/my-enrollments" element={<ProtectedRoute><MyEnrollments /></ProtectedRoute>} />
+          <Route path="/patient/appointments" element={<ProtectedRoute><PatientAppointments /></ProtectedRoute>} />
           <Route path="/patient/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
 
           {/* Admin / clinic ops — role-gated at the route level, not just hidden in the UI */}
