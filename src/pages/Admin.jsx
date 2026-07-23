@@ -12,6 +12,22 @@ const DELETION_STATUS_STYLES = {
   denied:     'bg-slate-100 text-slate-500',
 }
 
+const INSURANCE_STATUS_STYLES = {
+  pending:          'bg-slate-100 text-slate-600',
+  under_review:     'bg-blue-100 text-blue-700',
+  needs_correction: 'bg-amber-100 text-amber-700',
+  verified:         'bg-green-100 text-green-700',
+  ineligible:       'bg-red-100 text-red-700',
+}
+
+const INSURANCE_STATUS_LABELS = {
+  pending: 'Not Submitted',
+  under_review: 'Under Review',
+  needs_correction: 'Needs Correction',
+  verified: 'Verified',
+  ineligible: 'Ineligible',
+}
+
 const STATUS_STYLES = {
   pending:    'bg-amber-100 text-amber-800',
   confirmed:  'bg-green-100 text-green-800',
@@ -41,6 +57,8 @@ export default function Admin() {
   const [filterProgram, setFilterProgram] = useState('all')
   const [filterStatus, setFilterStatus] = useState('all')
   const [deletionRequests, setDeletionRequests] = useState([])
+  const [insuranceVerifications, setInsuranceVerifications] = useState([])
+  const [overrideAcknowledged, setOverrideAcknowledged] = useState(false)
   const [deletionBusyId, setDeletionBusyId] = useState(null)
   const [deletionNotes, setDeletionNotes] = useState({})
   const [showProgramForm, setShowProgramForm] = useState(false)
@@ -49,6 +67,10 @@ export default function Admin() {
   const [programSaving, setProgramSaving] = useState(false)
   const [programError, setProgramError] = useState(null)
   const [programBusyId, setProgramBusyId] = useState(null)
+  const [schedulingEnrollment, setSchedulingEnrollment] = useState(null)
+  const [scheduleForm, setScheduleForm] = useState({ scheduled_at: '', physician_name: '', location: '' })
+  const [schedulingBusy, setSchedulingBusy] = useState(false)
+  const [schedulingError, setSchedulingError] = useState(null)
 
   useEffect(() => {
     async function loadData() {
@@ -60,7 +82,7 @@ export default function Admin() {
 
       setRole(patient?.role)
 
-      const [enrRes, progRes, delRes] = await Promise.all([
+      const [enrRes, progRes, delRes, insRes] = await Promise.all([
         supabase
           .from('enrollments')
           .select('*, patients(full_name, phone), programs(name, category, capacity)')
@@ -70,11 +92,16 @@ export default function Admin() {
           .from('deletion_requests')
           .select('*, patients(full_name, phone)')
           .order('requested_at', { ascending: false }),
+        supabase
+          .from('insurance_verifications')
+          .select('patient_id, status, created_at')
+          .order('created_at', { ascending: false }),
       ])
 
       if (enrRes.data) setEnrollments(enrRes.data)
       if (progRes.data) setPrograms(progRes.data)
       if (delRes.data) setDeletionRequests(delRes.data)
+      if (insRes.data) setInsuranceVerifications(insRes.data)
       setLoading(false)
     }
     loadData()
@@ -83,13 +110,19 @@ export default function Admin() {
   const updateStatus = async (enrollmentId, newStatus) => {
     setBusyId(enrollmentId)
     setError(null)
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from('enrollments')
       .update({ status: newStatus })
       .eq('id', enrollmentId)
+      .select()
+      .maybeSingle()
 
     if (error) {
       setError(error.message)
+    } else if (!data) {
+      // .update() doesn't error when RLS silently matches 0 rows — checking
+      // the returned row is the only way to catch that here.
+      setError('Update did not apply — you may not have permission to change this enrollment.')
     } else {
       setEnrollments((prev) =>
         prev.map((e) => (e.id === enrollmentId ? { ...e, status: newStatus } : e))
@@ -102,6 +135,90 @@ export default function Admin() {
       })
     }
     setBusyId(null)
+  }
+
+  const openScheduleModal = (enrollment) => {
+    setSchedulingEnrollment(enrollment)
+    setScheduleForm({
+      scheduled_at: '',
+      physician_name: '',
+      location: enrollment.programs?.location || '',
+    })
+    setSchedulingError(null)
+    setOverrideAcknowledged(false)
+  }
+
+  // insuranceVerifications is ordered created_at desc from the fetch, so the
+  // first match per patient is their latest/current case.
+  const getLatestInsuranceStatus = (patientId) =>
+    insuranceVerifications.find((v) => v.patient_id === patientId)?.status || null
+
+  const closeScheduleModal = () => {
+    setSchedulingEnrollment(null)
+    setScheduleForm({ scheduled_at: '', physician_name: '', location: '' })
+    setSchedulingError(null)
+  }
+
+  const confirmAndSchedule = async () => {
+    if (!scheduleForm.scheduled_at) {
+      setSchedulingError('Please pick a date and time for the appointment.')
+      return
+    }
+
+    setSchedulingBusy(true)
+    setSchedulingError(null)
+    const enrollment = schedulingEnrollment
+
+    const { data: enrollData, error: enrollError } = await supabase
+      .from('enrollments')
+      .update({ status: 'confirmed' })
+      .eq('id', enrollment.id)
+      .select()
+      .maybeSingle()
+
+    if (enrollError) {
+      setSchedulingBusy(false)
+      setSchedulingError(enrollError.message)
+      return
+    }
+    if (!enrollData) {
+      setSchedulingBusy(false)
+      setSchedulingError('Could not confirm this enrollment — you may not have permission to change it.')
+      return
+    }
+
+    const { error: apptError } = await supabase.from('appointments').insert({
+      patient_id: enrollment.patient_id,
+      program_id: enrollment.program_id,
+      scheduled_at: new Date(scheduleForm.scheduled_at).toISOString(),
+      physician_name: scheduleForm.physician_name || null,
+      location: scheduleForm.location || null,
+      created_by: user.id,
+    })
+
+    setSchedulingBusy(false)
+
+    if (apptError) {
+      setSchedulingError(`Enrollment confirmed, but scheduling the appointment failed: ${apptError.message}`)
+      return
+    }
+
+    setEnrollments((prev) =>
+      prev.map((e) => (e.id === enrollment.id ? { ...e, status: 'confirmed' } : e))
+    )
+    logAudit({
+      action: 'update',
+      resourceType: 'enrollments',
+      resourceId: enrollment.id,
+      description: 'Staff confirmed enrollment and scheduled an appointment',
+    })
+    logAudit({
+      action: 'create',
+      resourceType: 'appointments',
+      patientId: enrollment.patient_id,
+      description: `Staff scheduled an appointment for "${enrollment.patients?.full_name || 'patient'}"`,
+    })
+    closeScheduleModal()
   }
 
   const updateDeletionRequest = async (request, newStatus) => {
@@ -573,6 +690,7 @@ export default function Admin() {
                   <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-400">Program</th>
                   <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-400">Enrolled</th>
                   <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-400">Status</th>
+                  <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-400">Insurance</th>
                   <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-400">Actions</th>
                 </tr>
               </thead>
@@ -596,10 +714,23 @@ export default function Admin() {
                       </span>
                     </td>
                     <td className="px-5 py-4">
+                      {(() => {
+                        const insStatus = getLatestInsuranceStatus(e.patient_id)
+                        if (!insStatus) {
+                          return <span className="rounded-full px-3 py-1 text-xs font-medium bg-slate-100 text-slate-400">No case</span>
+                        }
+                        return (
+                          <span className={`rounded-full px-3 py-1 text-xs font-medium ${INSURANCE_STATUS_STYLES[insStatus]}`}>
+                            {INSURANCE_STATUS_LABELS[insStatus]}
+                          </span>
+                        )
+                      })()}
+                    </td>
+                    <td className="px-5 py-4">
                       <div className="flex gap-2 flex-wrap">
                         {e.status !== 'confirmed' && (
                           <button
-                            onClick={() => updateStatus(e.id, 'confirmed')}
+                            onClick={() => openScheduleModal(e)}
                             disabled={busyId === e.id}
                             className="rounded-lg bg-green-600 px-3 py-1 text-xs font-medium text-white hover:bg-green-700 disabled:opacity-50"
                           >
@@ -719,6 +850,93 @@ export default function Admin() {
           </div>
         )}
       </div>
+
+      {schedulingEnrollment && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 p-4">
+          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h2 className="text-lg font-bold text-slate-900">Confirm & Schedule</h2>
+                <p className="text-sm text-slate-500">
+                  {schedulingEnrollment.patients?.full_name} — {schedulingEnrollment.programs?.name}
+                </p>
+              </div>
+              <button onClick={closeScheduleModal} className="text-slate-400 hover:text-slate-600">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            <div className="space-y-3">
+              <p className="text-xs text-slate-500">
+                Confirming this enrollment schedules their first appointment — the patient will see it under "Appointments."
+              </p>
+
+              {(() => {
+                const insStatus = getLatestInsuranceStatus(schedulingEnrollment.patient_id)
+                if (insStatus === 'verified') return null
+                return (
+                  <div className="rounded-lg border border-amber-300 bg-amber-50 p-3">
+                    <p className="text-sm font-medium text-amber-800">
+                      ⚠ Insurance is {insStatus ? INSURANCE_STATUS_LABELS[insStatus].toLowerCase() : 'not yet on file'} for this patient.
+                    </p>
+                    <p className="mt-1 text-xs text-amber-700">
+                      Confirming before insurance is verified risks a denied claim. Check the Intake Queue before proceeding if unsure.
+                    </p>
+                    <label className="mt-2 flex items-center gap-2 text-xs text-amber-800">
+                      <input
+                        type="checkbox"
+                        checked={overrideAcknowledged}
+                        onChange={(e) => setOverrideAcknowledged(e.target.checked)}
+                      />
+                      I understand insurance isn't verified and want to confirm anyway
+                    </label>
+                  </div>
+                )
+              })()}
+
+              <div>
+                <label className="mb-1 block text-sm font-medium text-slate-700">Date & time *</label>
+                <input type="datetime-local" value={scheduleForm.scheduled_at}
+                  onChange={(e) => setScheduleForm({ ...scheduleForm, scheduled_at: e.target.value })}
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500" />
+              </div>
+              <div>
+                <label className="mb-1 block text-sm font-medium text-slate-700">Physician</label>
+                <input type="text" value={scheduleForm.physician_name} placeholder="e.g. Dr. Lee"
+                  onChange={(e) => setScheduleForm({ ...scheduleForm, physician_name: e.target.value })}
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500" />
+              </div>
+              <div>
+                <label className="mb-1 block text-sm font-medium text-slate-700">Location</label>
+                <input type="text" value={scheduleForm.location}
+                  onChange={(e) => setScheduleForm({ ...scheduleForm, location: e.target.value })}
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500" />
+              </div>
+
+              {schedulingError && <p className="text-sm text-red-600">{schedulingError}</p>}
+
+              <div className="flex gap-3 pt-2">
+                <button onClick={closeScheduleModal}
+                  className="flex-1 rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50">
+                  Cancel
+                </button>
+                <button
+                  onClick={confirmAndSchedule}
+                  disabled={
+                    schedulingBusy ||
+                    (getLatestInsuranceStatus(schedulingEnrollment.patient_id) !== 'verified' && !overrideAcknowledged)
+                  }
+                  className="flex-1 rounded-lg bg-green-600 px-4 py-2 text-sm font-semibold text-white hover:bg-green-700 disabled:opacity-50"
+                >
+                  {schedulingBusy ? 'Saving...' : 'Confirm & Schedule'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

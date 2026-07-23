@@ -73,16 +73,31 @@ export default function AdminIntakeQueue() {
           if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
             setCases((prev) => {
               const exists = prev.some((c) => c.id === payload.new.id)
-              const withoutPatients = payload.new
               if (exists) {
-                return prev.map((c) => (c.id === payload.new.id ? { ...c, ...withoutPatients } : c))
+                // UPDATE: safe to merge directly — payload.new has no `patients`
+                // key, so this can't wipe out the patients{} data already in state.
+                return prev.map((c) => (c.id === payload.new.id ? { ...c, ...payload.new } : c))
               }
-              // New case from realtime won't include the joined patients{} data —
-              // it'll show as "Unknown" until the next full refresh, which is an
-              // acceptable trade-off for instant visibility over a perfect row.
-              return [...prev, withoutPatients]
+              // New case: postgres_changes payloads never include joined/embedded
+              // relations, so append a placeholder now for instant visibility,
+              // then fetch the real patient name right after (below).
+              return [...prev, { ...payload.new, patients: null }]
             })
             flashRow(payload.new.id)
+
+            if (payload.eventType === 'INSERT') {
+              supabase
+                .from('patients')
+                .select('full_name, phone')
+                .eq('id', payload.new.patient_id)
+                .single()
+                .then(({ data }) => {
+                  if (!data) return
+                  setCases((prev) =>
+                    prev.map((c) => (c.id === payload.new.id ? { ...c, patients: data } : c))
+                  )
+                })
+            }
           }
         }
       )
