@@ -18,7 +18,7 @@
     "i18next": "^26.3.6",
     "lucide-react": "latest",
     "react": "^19.2.6",
-    "react-dom": "^19.2.6",
+    "react-dom": "^19.2.8",
     "react-hook-form": "latest",
     "react-i18next": "^17.0.10",
     "react-router-dom": "latest",
