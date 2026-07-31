@@ -1,49 +1,41 @@
-// Client-side OCR helper. Sends the image to our own /api/ocr serverless
-// function (never directly to Google — the API key stays server-side) and
-// parses the returned raw text into the structured fields each scanner needs.
+// Client-side OCR using Tesseract.js — runs entirely in the browser via
+// WebAssembly. The image is never transmitted anywhere: not to our server,
+// not to any third party. This is a stronger privacy position than a
+// server-side OCR proxy, since there's no network hop for the raw image at
+// all. Parsing the extracted text into structured fields happens below,
+// unchanged regardless of which OCR engine produced the text.
 //
-// IMPORTANT: per the "no raw ID images stored" security requirement, the
-// image is sent for one-shot text extraction and never written to Supabase
-// storage or any table — only the parsed text fields are kept.
+// IMPORTANT: only ever use the "tesseract.js" package specifically. Do NOT
+// use "node-tesseract-ocr" or any package that wraps the native Tesseract
+// CLI via child_process — those have a known critical command-injection
+// vulnerability (CVE-2026-26832). tesseract.js is a from-scratch WASM port
+// with no shell-out, so that vulnerability class doesn't apply here.
 
-function fileToBase64(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onload = () => {
-      // reader.result looks like "data:image/png;base64,AAAA..." — strip the prefix
-      const base64 = reader.result.split(",")[1]
-      resolve(base64)
-    }
-    reader.onerror = () => reject(new Error("Could not read the image file."))
-    reader.readAsDataURL(file)
-  })
-}
+import { createWorker } from "tesseract.js"
 
 /**
- * Sends an image file to the OCR endpoint and returns the raw extracted text.
+ * Runs OCR on an image file entirely in the browser and returns the raw
+ * extracted text.
  * @param {File} file
  * @returns {Promise<string>}
  */
 export async function extractTextFromImage(file) {
-  const base64 = await fileToBase64(file)
+  const worker = await createWorker("eng")
 
-  const response = await fetch("/api/ocr", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ image: base64 }),
-  })
+  try {
+    const { data } = await worker.recognize(file)
+    const text = data.text?.trim()
 
-  const data = await response.json()
+    if (!text) {
+      throw new Error("No text could be read from that image. Try a clearer photo.")
+    }
 
-  if (!response.ok) {
-    throw new Error(data.error || "OCR request failed.")
+    return text
+  } finally {
+    // Always terminate the worker — otherwise its WASM memory stays
+    // allocated in the browser tab even after the scan is done.
+    await worker.terminate()
   }
-
-  if (!data.text) {
-    throw new Error(data.warning || "No text could be read from that image. Try a clearer photo.")
-  }
-
-  return data.text
 }
 
 // --- Field parsers -----------------------------------------------------

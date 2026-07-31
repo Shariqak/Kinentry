@@ -1,27 +1,12 @@
 import { useState, useRef } from "react"
-
-// Simulated OCR extraction — replace this function with real Google Vision API call later.
-// NOTE: per the security requirements, we never persist the raw image — only
-// the extracted text fields are kept, and the preview URL is revoked on close.
-function simulateOCR(file) {
-  return new Promise((resolve) => {
-    setTimeout(() => {
-      resolve({
-        full_name: "Auto-detected from ID",
-        date_of_birth: "1990-01-01",
-        license_number: "D" + Math.floor(Math.random() * 900000000 + 100000000),
-        license_state: "TX",
-        expiration_date: "2029-01-01",
-      })
-    }, 2000) // simulate 2 second processing time
-  })
-}
+import { extractTextFromImage, parseDriverLicenseText } from "../lib/ocr"
 
 export function DriverLicenseScanner({ onScanComplete }) {
   const [isOpen, setIsOpen] = useState(false)
   const [scanning, setScanning] = useState(false)
   const [preview, setPreview] = useState(null)
   const [scanResult, setScanResult] = useState(null)
+  const [rawOcrText, setRawOcrText] = useState(null)
   const [error, setError] = useState(null)
   const fileRef = useRef(null)
 
@@ -37,10 +22,12 @@ export function DriverLicenseScanner({ onScanComplete }) {
     setScanning(true)
 
     try {
-      const result = await simulateOCR(file)
+      const text = await extractTextFromImage(file)
+      setRawOcrText(text)
+      const result = parseDriverLicenseText(text)
       setScanResult(result)
     } catch (err) {
-      setError("Failed to scan ID. Please try again or enter details manually.")
+      setError(err.message || "Failed to scan ID. Please try again or enter details manually.")
     }
     setScanning(false)
   }
@@ -63,6 +50,7 @@ export function DriverLicenseScanner({ onScanComplete }) {
     setIsOpen(false)
     setPreview(null)
     setScanResult(null)
+    setRawOcrText(null)
     setError(null)
     setScanning(false)
   }
@@ -144,9 +132,22 @@ export function DriverLicenseScanner({ onScanComplete }) {
                     {Object.entries(scanResult).map(([key, value]) => (
                       <div key={key} className="flex justify-between text-sm">
                         <span className="text-slate-500 capitalize">{key.replace(/_/g, " ")}</span>
-                        <span className="font-medium text-slate-800">{value}</span>
+                        <span className={value ? "font-medium text-slate-800" : "text-amber-600 italic"}>
+                          {value || "Not detected — fill in manually"}
+                        </span>
                       </div>
                     ))}
+                  </div>
+                )}
+
+                {rawOcrText && (
+                  <div className="rounded-xl bg-slate-900 p-4">
+                    <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
+                      Debug: raw OCR text (temporary — copy this and send it back)
+                    </p>
+                    <pre className="max-h-40 overflow-y-auto whitespace-pre-wrap select-all text-xs text-green-400">
+                      {rawOcrText}
+                    </pre>
                   </div>
                 )}
 

@@ -1,19 +1,5 @@
 import { useState, useRef } from "react"
-
-// Simulated OCR extraction — replace this function with real Google Vision API call later
-function simulateOCR(file) {
-  return new Promise((resolve) => {
-    setTimeout(() => {
-      resolve({
-        insurance_provider: "Blue Cross Blue Shield",
-        member_id: "BCB" + Math.floor(Math.random() * 9000000 + 1000000),
-        group_number: "GRP" + Math.floor(Math.random() * 90000 + 10000),
-        plan_type: "PPO",
-        policy_holder: "Auto-detected from card",
-      })
-    }, 2000) // simulate 2 second processing time
-  })
-}
+import { extractTextFromImage, parseInsuranceCardText } from "../lib/ocr"
 
 export function InsuranceCardScanner({ onScanComplete }) {
   const [isOpen, setIsOpen] = useState(false)
@@ -35,10 +21,11 @@ export function InsuranceCardScanner({ onScanComplete }) {
     setScanning(true)
 
     try {
-      const result = await simulateOCR(file)
+      const text = await extractTextFromImage(file)
+      const result = parseInsuranceCardText(text)
       setScanResult(result)
     } catch (err) {
-      setError("Failed to scan card. Please try again or enter details manually.")
+      setError(err.message || "Failed to scan card. Please try again or enter details manually.")
     }
     setScanning(false)
   }
@@ -142,7 +129,9 @@ export function InsuranceCardScanner({ onScanComplete }) {
                     {Object.entries(scanResult).map(([key, value]) => (
                       <div key={key} className="flex justify-between text-sm">
                         <span className="text-slate-500 capitalize">{key.replace(/_/g, " ")}</span>
-                        <span className="font-medium text-slate-800">{value}</span>
+                        <span className={value ? "font-medium text-slate-800" : "text-amber-600 italic"}>
+                          {value || "Not detected — fill in manually"}
+                        </span>
                       </div>
                     ))}
                   </div>
